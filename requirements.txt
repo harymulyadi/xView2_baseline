@@ -12,10 +12,10 @@
 # 1. SpaceNet (https://github.com/motokimura/spacenet_building_detection/blob/master/LICENSE) Copyright 2017 Motoki Kimura.                                         #
 # DM19-0988                                                                                                                                                         #
 #####################################################################################################################################################################
-numpy
+numpy<2.0.0
 matplotlib
 tqdm 
-libtiff
+pylibtiff
 scipy
 Pillow
 scikit-image
@@ -23,10 +23,16 @@ opencv-python
 imgaug
 IPython
 geopandas
-keras
+keras<=3.x
 imantics
 simplification
-scikit-learn
+scikit-learn 
 chainer
 tensorboard
 tensorboardX
+setuptools<65.0.0
+#cupy-cuda13x 
+#nvidia-nccl-cu13
+cupy-cuda12x 
+nvidia-nccl-cu12
+tensorflow<=2.20

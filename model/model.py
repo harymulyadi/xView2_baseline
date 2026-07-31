@@ -48,9 +48,19 @@ from keras import backend as K
 # Loss function for ordinal loss from https://github.com/JHart96/keras_ordinal_categorical_crossentropy
 ###
 def ordinal_loss(y_true, y_pred):
-    weights = K.cast(K.abs(K.argmax(y_true, axis=1) - K.argmax(y_pred, axis=1))/(K.int_shape(y_pred)[1] - 1), dtype='float32')
-    return (1.0 + weights) * keras.losses.categorical_crossentropy(y_true, y_pred )
+  num_classes = tf.cast(tf.shape(y_pred)[1] - 1, tf.float32)
 
+  weights = tf.cast(
+      tf.abs(
+          tf.argmax(y_true, axis=1, output_type=tf.int32)
+          - tf.argmax(y_pred, axis=1, output_type=tf.int32)
+      ),
+      tf.float32,
+  ) / num_classes
+
+  loss = keras.losses.categorical_crossentropy(y_true, y_pred)
+
+  return (1.0 + weights) * loss
 
 ###
 # Generate a simple CNN

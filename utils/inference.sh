@@ -94,7 +94,7 @@ done
 
 # Create the output directory if it doesn't exist 
 mkdir -p "$inference_base"
-
+ 
 if ! [ -f "$LOGFILE" ]; then
     touch "$LOGFILE"
 fi
@@ -164,7 +164,7 @@ printf "\n" >> "$LOGFILE"
 
 # Transforming the inference json file to the image required for scoring
 printf "Finalizing output file" 
-python3 "$XBDIR"/utils/inference_image_output.py --input "$inference_base"/inference.json --output "$output_file"  >> "$LOGFILE" 2>&1
+python3 "$XBDIR"/utils/inference_image_output.py --input "$inference_base"/inference.json --background "$disaster_post_file" --output "$output_file"  >> "$LOGFILE" 2>&1
 
 #Cleaning up by removing the temporary working directory we created
 printf "Cleaning up\n"

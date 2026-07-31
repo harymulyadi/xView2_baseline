@@ -35,7 +35,7 @@ class TensorboardLogger(extension.Extension):
             if (self._entries is not None) and (k not in self._entries):
                 continue
             
-            if isinstance(v, cupy.core.core.ndarray):
+            if isinstance(v, cupy.ndarray):
                 v = Variable(v)
             
             self._logger.add_scalar(k, v, trainer.updater.iteration)

@@ -42,6 +42,8 @@ from keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, Add, Input, Conca
 from keras.models import Model
 from keras.applications.resnet50 import ResNet50
 from keras import backend as K
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from pathlib import Path
 
 from model import *
 
@@ -51,11 +53,14 @@ logging.basicConfig(level=logging.INFO)
 NUM_WORKERS = 4 
 NUM_CLASSES = 4
 BATCH_SIZE = 64
-NUM_EPOCHS = 100 
+NUM_EPOCHS = 21 # Now we are using 20 epochs because we are using laptop to train the model. If you have a GPU, you can increase the number of epochs to 50 or more.
 LEARNING_RATE = 0.0001
 RANDOM_SEED = 123
 LOG_STEP = 150
-LOG_DIR = '/path/to/logs' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+log_dir_path = Path("/tmp/damage_classification_logs")
+log_dir_path.mkdir(parents=True, exist_ok=True)
+LOG_DIR = str(log_dir_path / datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
 damage_intensity_encoding = dict()
 damage_intensity_encoding[3] = '3'
@@ -68,37 +73,20 @@ damage_intensity_encoding[0] = '0'
 # Function to compute unweighted f1 scores, just for reference
 ###
 def f1(y_true, y_pred):
-    def recall(y_true, y_pred):
-        """Recall metric.
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
 
-        Only computes a batch-wise average of recall.
+    y_pred = tf.round(tf.clip_by_value(y_pred, 0.0, 1.0))
+    y_true = tf.round(tf.clip_by_value(y_true, 0.0, 1.0))
 
-        Computes the recall, a metric for multi-label classification of
-        how many relevant items are selected.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-        recall = true_positives / (possible_positives + K.epsilon())
-        return recall
+    tp = tf.reduce_sum(y_true * y_pred)
 
-    def precision(y_true, y_pred):
-        """Precision metric.
+    precision = tp / (tf.reduce_sum(y_pred) + tf.keras.backend.epsilon())
+    recall = tp / (tf.reduce_sum(y_true) + tf.keras.backend.epsilon())
 
-        Only computes a batch-wise average of precision.
-
-        Computes the precision, a metric for multi-label classification of
-        how many selected items are relevant.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-        precision = true_positives / (predicted_positives + K.epsilon())
-        return precision
-
-
-    precision = precision(y_true, y_pred)
-    recall = recall(y_true, y_pred)
-    return 2*((precision*recall)/(precision+recall+K.epsilon()))
-
+    return 2.0 * precision * recall / (
+        precision + recall + tf.keras.backend.epsilon()
+    )
 
 ###
 # Creates data generator for validation set
@@ -107,9 +95,8 @@ def validation_generator(test_csv, test_dir):
     df = pd.read_csv(test_csv)
     df = df.replace({"labels" : damage_intensity_encoding })
 
-    gen = keras.preprocessing.image.ImageDataGenerator(
-                             rescale=1/255.)
 
+    gen = ImageDataGenerator(rescale=1/255.)
 
     return gen.flow_from_dataframe(dataframe=df,
                                    directory=test_dir,
@@ -128,7 +115,7 @@ def validation_generator(test_csv, test_dir):
 def augment_data(df, in_dir):
 
     df = df.replace({"labels" : damage_intensity_encoding })
-    gen = keras.preprocessing.image.ImageDataGenerator(horizontal_flip=True,
+    gen = ImageDataGenerator(horizontal_flip=True,
                              vertical_flip=True,
                              width_shift_range=0.1,
                              height_shift_range=0.1,
@@ -153,22 +140,21 @@ def train_model(train_data, train_csv, test_data, test_csv, model_in, model_out)
         model.load_weights(model_in)
 
     df = pd.read_csv(train_csv)
-    class_weights = compute_class_weight('balanced', np.unique(df['labels'].to_list()), df['labels'].to_list());
+    class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(df['labels'].to_list()), y=df['labels']);
     d_class_weights = dict(enumerate(class_weights))
 
     samples = df['uuid'].count()
-    steps = np.ceil(samples/BATCH_SIZE)
+    steps = int(np.ceil(samples / BATCH_SIZE))
 
     # Augments the training data
     train_gen_flow = augment_data(df, train_data)
 
     #Set up tensorboard logging
-    tensorboard_callbacks = keras.callbacks.TensorBoard(log_dir=LOG_DIR,
-                                                        batch_size=BATCH_SIZE)
+    tensorboard_callbacks = keras.callbacks.TensorBoard(log_dir=LOG_DIR)
 
     
     #Filepath to save model weights
-    filepath = model_out + "-saved-model-{epoch:02d}-{accuracy:.2f}.hdf5"
+    filepath = model_out + "-saved-model-{epoch:02d}-{accuracy:.2f}.keras"
     checkpoints = keras.callbacks.ModelCheckpoint(filepath,
                                                     monitor=['loss', 'accuracy'],
                                                     verbose=1,
@@ -176,24 +162,23 @@ def train_model(train_data, train_csv, test_data, test_csv, model_in, model_out)
                                                     mode='max')
 
     #Adds adam optimizer
-    adam = keras.optimizers.Adam(lr=LEARNING_RATE,
+    adam = keras.optimizers.Adam(
+                                    learning_rate=LEARNING_RATE,
                                     beta_1=0.9,
                                     beta_2=0.999,
-                                    decay=0.0,
                                     amsgrad=False)
 
 
-    model.compile(loss=ordinal_loss, optimizer=adam, metrics=['accuracy', f1])
-
+    model.compile(optimizer=adam, loss=ordinal_loss, metrics=["accuracy"])
     #Training begins
-    model.fit_generator(generator=train_gen_flow,
-                        steps_per_epoch=steps,
-                        epochs=NUM_EPOCHS,
-                        workers=NUM_WORKERS,
-                        use_multiprocessing=True,
-                        class_weight=d_class_weights,
-                        callbacks=[tensorboard_callbacks, checkpoints],
-                        verbose=1)
+    model.fit(
+        train_gen_flow,
+        steps_per_epoch=steps,
+        epochs=NUM_EPOCHS,
+        class_weight=d_class_weights,
+        callbacks=[tensorboard_callbacks, checkpoints],
+        verbose=1
+        )
 
 
     #Evalulate f1 weighted scores on validation set
